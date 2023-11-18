@@ -1,56 +1,28 @@
 import requests
 import pandas as pd
 from datetime import datetime
-from pyspark.sql.functions import current_timestamp, lit
-from pyspark.sql.functions import round, col, weekofyear, avg, unix_timestamp
-from pyspark.sql.window import Window
 from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
+from pyspark.sql.functions import current_timestamp, round, col, weekofyear, avg, lit
 
-# Replace 'YOUR_API_KEY' and 'CITY_NAME' with your actual API key and location details
-api_key = '637dbddfd460f96d557f371141279b5c'
-city = 'Houston'
 
-spark = SparkSession.builder \
-    .appName("WeatherReportApp") \
-    .getOrCreate()
-
-# MySQL connection properties
-weather_db_properties_url = "jdbc:mysql://localhost:3306/weather_db"
-weather_db_properties = {
-    "user": "your_username",
-    "password": "your_password",
-    "driver": "com.mysql.jdbc.Driver",
-}
-
-# MySQL query to fetch data
-weather_data_query = "SELECT * FROM weather_db.weather_report_data"
-
-try:
-    # API endpoint for daily forecast weather data
+def import_requests(api_key, city):
     endpoint = f'http://api.openweathermap.org/data/2.5/forecast?q={city}&appid={api_key}'
-
-    # Make the API request
     response = requests.get(endpoint)
-
-    # Check if the request was successful (status code 200)
     response.raise_for_status()
+    return response.json()
 
-    # Parse the JSON response
-    data = response.json()
+
+def fetch_weather_data(api_key, city):
+    data = import_requests(api_key, city)
 
     # Extract date-related weather fields
     daily_forecast_data = data['list']
 
     # Create lists to store extracted data
-    dates = []
-    temperatures = []
-    humidities = []
-    wind_speeds = []
-    weather_descriptions = []
+    dates, temperatures, humidities, wind_speeds, weather_descriptions = [], [], [], [], []
 
     for forecast in daily_forecast_data:
-        timestamp = forecast['dt']  # Timestamp in seconds since Epoch
+        timestamp = forecast['dt']
         date = datetime.utcfromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
         temperature = forecast['main']['temp']
         humidity = forecast['main']['humidity']
@@ -64,29 +36,28 @@ try:
         wind_speeds.append(wind_speed)
         weather_descriptions.append(weather_description)
 
-        # Extracting city and country
-        city = data.get('city', {}).get('name', '')
-        country = data.get('city', {}).get('country', '')
+    # Extracting city and country
+    city_name = data.get('city', {}).get('name', '')
+    country_name = data.get('city', {}).get('country', '')
 
     # Create a Pandas DataFrame
     weather_df = pd.DataFrame({
-        'country': country,
-        'city': city,
+        'country': country_name,
+        'city': city_name,
         'weatherDate': dates,
         'Temperature': temperatures,
         'Humidity': humidities,
         'WindSpeed': wind_speeds,
         'WeatherDescription': weather_descriptions
-
     })
 
-    # Display the DataFrame
-    # print(weather_df)
+    return weather_df
 
+
+def process_spark_data(spark, weather_df):
     spark_weather_df = spark.createDataFrame(weather_df)
 
-    # Convert temperature from Kelvin to Celsius ,Convert wind speed from meters per second to kilometers per hour
-
+    # Convert temperature from Kelvin to Celsius, Convert wind speed from meters per second to kilometers per hour
     spark_weather_df = spark_weather_df.withColumn('Temperature', (col('Temperature') - 273.15)).withColumn('WindSpeed',
                                                                                                             col('WindSpeed') * 3.6).withColumn(
         'jobdate', current_timestamp())
@@ -101,12 +72,10 @@ try:
                                                                                                 'WeatherDescription',
                                                                                                 'jobdate')
 
-    # Display the PySpark DataFrame along with schema
-    spark_weather_df.show()
-    spark_weather_df.printSchema()
+    return spark_weather_df
 
 
-
+def calculate_avg_temperature(spark_weather_df):
     # Calculate average temperatures for each week
     average_temperature_per_week = (
         spark_weather_df
@@ -114,18 +83,11 @@ try:
         .agg(round(avg('Temperature_in_Celsius'), 2).alias('average_temperature'))
     )
 
-    # Show the result
-    average_temperature_per_week.show()
+    return average_temperature_per_week
 
-    # Write theaverage_temperature_per_week  DataFrame to the MySQL table
-    average_temperature_per_week.write.jdbc(url=weather_db_properties_url, table="weather_db.weekly_avg_temp_report_data", mode='append',
-                         properties=weather_db_properties)
 
+def calculate_avg_humidity(spark_weather_df, start_date, end_date):
     # Find the average humidity for a given time period
-    # Replace 'start_date' and 'end_date' with the desired time period
-    start_date = '2023-11-18'
-    end_date = '2023-11-19'
-
     average_humidity_for_time_period = (
         spark_weather_df
         .filter((col('weatherDate') >= start_date) & (col('weatherDate') <= end_date))
@@ -134,6 +96,7 @@ try:
             round(avg('Humidity'), 2).alias('average_humidity')
         )
     )
+
     # Add start_date and end_date as constant values
     average_humidity_for_time_period = (
         average_humidity_for_time_period
@@ -141,31 +104,71 @@ try:
         .withColumn("end_date", lit(end_date))
     )
 
-    # Show the result
-    average_humidity_for_time_period.show(truncate=False)
+    return average_humidity_for_time_period
 
-    # Write average_humidity_for_time_period  DataFrame to the MySQL table
-    average_humidity_for_time_period.write.jdbc(url=weather_db_properties_url,
-                                            table="weather_db.weather_avg_humidity_report_data", mode='append',
+
+def main():
+    api_key = '637dbddfd460f96d557f371141279b5c'
+    city = 'Houston'
+    start_date = '2023-11-18'
+    end_date = '2023-11-19'
+
+    spark = SparkSession.builder.appName("WeatherReportApp").getOrCreate()
+
+    # MySQL connection properties
+    weather_db_properties_url = "jdbc:mysql://localhost:3306/weather_db"
+    weather_db_properties = {
+        "user": "your_username",
+        "password": "your_password",
+        "driver": "com.mysql.jdbc.Driver",
+    }
+
+    # MySQL query to fetch data
+    weather_data_query = "SELECT * FROM weather_db.weather_report_data"
+
+    try:
+        weather_df = fetch_weather_data(api_key, city)
+        spark_weather_df = process_spark_data(spark, weather_df)
+
+        # Calculate and display average temperatures for each week
+        avg_temp_df = calculate_avg_temperature(spark_weather_df)
+        avg_temp_df.show()
+
+        # Write the average temperature DataFrame to the MySQL table
+        avg_temp_df.write.jdbc(url=weather_db_properties_url, table="weather_db.weekly_avg_temp_report_data",
+                               mode='append',
+                               properties=weather_db_properties)
+
+        # Calculate and display average humidity for a given time period
+        avg_humidity_df = calculate_avg_humidity(spark_weather_df, start_date, end_date)
+        avg_humidity_df.show(truncate=False)
+
+        # Write the average humidity DataFrame to the MySQL table
+        avg_humidity_df.write.jdbc(url=weather_db_properties_url,
+                                   table="weather_db.weather_avg_humidity_report_data", mode='append',
+                                   properties=weather_db_properties)
+
+        # Read data from MySQL into a PySpark DataFrame
+        weather_dest_data = spark.read.jdbc(url=weather_db_properties_url, table=weather_data_query,
                                             properties=weather_db_properties)
 
-    # Read data from MySQL into a PySpark DataFrame
-    weather_dest_data = spark.read.jdbc(url=weather_db_properties_url, table=weather_data_query, properties=weather_db_properties)
+        # Specify the key columns for the join as a list
+        join_keys = ['country', 'city', 'weatherDate']
 
-    # Specify the key columns for the join as a list
-    join_keys = ['country', 'city', 'weatherDate']
+        # Perform left anti join
+        result_df = spark_weather_df.join(weather_dest_data, on=join_keys, how='left_anti')
 
-    # Perform left anti join
-    result_df = spark_weather_df.join(weather_dest_data, on=join_keys, how='left_anti')
+        # Write the DataFrame to the MySQL table
+        result_df.write.jdbc(url=weather_db_properties_url, table="weather_db.weather_report_data", mode='append',
+                             properties=weather_db_properties)
 
-    # Write the DataFrame to the MySQL table
-    result_df.write.jdbc(url=weather_db_properties_url, table="weather_db.weather_report_data", mode='append', properties=weather_db_properties)
+    except Exception as e:
+        print(f"Error: {e}")
+
+    finally:
+        # Stop the SparkSession when done
+        spark.stop()
 
 
-except Exception as e:
-    print(f"Error: {e}")
-
-finally:
-    # Stop the SparkSession when done
-    spark.stop()
-
+if __name__ == "__main__":
+    main()

@@ -117,6 +117,10 @@ try:
     # Show the result
     average_temperature_per_week.show()
 
+    # Write theaverage_temperature_per_week  DataFrame to the MySQL table
+    average_temperature_per_week.write.jdbc(url=weather_db_properties_url, table="weather_db.weekly_avg_temp_report_data", mode='append',
+                         properties=weather_db_properties)
+
     # Find the average humidity for a given time period
     # Replace 'start_date' and 'end_date' with the desired time period
     start_date = '2023-11-18'
@@ -140,7 +144,10 @@ try:
     # Show the result
     average_humidity_for_time_period.show(truncate=False)
 
-
+    # Write average_humidity_for_time_period  DataFrame to the MySQL table
+    average_humidity_for_time_period.write.jdbc(url=weather_db_properties_url,
+                                            table="weather_db.weather_avg_humidity_report_data", mode='append',
+                                            properties=weather_db_properties)
 
     # Read data from MySQL into a PySpark DataFrame
     weather_dest_data = spark.read.jdbc(url=weather_db_properties_url, table=weather_data_query, properties=weather_db_properties)

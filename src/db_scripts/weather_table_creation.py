@@ -20,7 +20,7 @@ try:
     cursor = connection.cursor()
 
     # Define the table creation SQL statement
-    create_table_query = """
+    weather_table_creatin_query = """
     CREATE TABLE IF NOT EXISTS weather_db.weather_report_data (
         country VARCHAR(255),
         city VARCHAR(255),
@@ -33,8 +33,32 @@ try:
     )
     """
 
+    weekly_avg_temp_creatin_query = """
+        CREATE TABLE IF NOT EXISTS weather_db.weekly_avg_temp_report_data (
+            country VARCHAR(255),
+            city VARCHAR(255),
+            week INT,
+            average_temperature DOUBLE,
+            jobDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+
+
+    weather_avg_humidity_creatin_query = """
+        CREATE TABLE IF NOT EXISTS weather_db.weather_avg_humidity_report_data (
+            country VARCHAR(255),
+            city VARCHAR(255),
+            average_humidity DOUBLE,
+            start_date DATE,
+            end_date DATE,
+            jobDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+
     # Execute the table creation SQL statement
-    cursor.execute(create_table_query)
+    cursor.execute(weather_table_creatin_query)
+    cursor.execute(weekly_avg_temp_creatin_query)
+    cursor.execute(weather_avg_humidity_creatin_query)
 
     # Commit the changes
     connection.commit()

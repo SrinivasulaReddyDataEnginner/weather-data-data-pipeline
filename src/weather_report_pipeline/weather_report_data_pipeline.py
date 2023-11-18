@@ -1,7 +1,7 @@
 import requests
 import pandas as pd
 from datetime import datetime
-from pyspark.sql.functions import current_timestamp
+from pyspark.sql.functions import current_timestamp, lit
 from pyspark.sql.functions import round, col, weekofyear, avg, unix_timestamp
 from pyspark.sql.window import Window
 from pyspark.sql import SparkSession
@@ -14,6 +14,17 @@ city = 'Houston'
 spark = SparkSession.builder \
     .appName("WeatherReportApp") \
     .getOrCreate()
+
+# MySQL connection properties
+weather_db_properties_url = "jdbc:mysql://localhost:3306/weather_db"
+weather_db_properties = {
+    "user": "your_username",
+    "password": "your_password",
+    "driver": "com.mysql.jdbc.Driver",
+}
+
+# MySQL query to fetch data
+weather_data_query = "SELECT * FROM weather_db.weather_report_data"
 
 try:
     # API endpoint for daily forecast weather data
@@ -94,22 +105,12 @@ try:
     spark_weather_df.show()
     spark_weather_df.printSchema()
 
-    # Calculate the time difference in minutes
-    windowSpec = Window.orderBy("jobdate").rowsBetween(-60, 0)
-    spark_weather_df = spark_weather_df.withColumn('time_diff', (unix_timestamp('jobdate') - unix_timestamp('weatherDate')).cast('int'))
 
-    # Filter the DataFrame for the last one hour
-    hourly_incremental_df = spark_weather_df.filter((col('time_diff') >= 0) & (col('time_diff') <= 60))
-
-    # Drop the intermediate columns if needed
-    hourly_incremental_df = hourly_incremental_df.drop('time_diff')
-
-    hourly_incremental_df.show()
 
     # Calculate average temperatures for each week
     average_temperature_per_week = (
         spark_weather_df
-        .groupBy(weekofyear('weatherDate').alias('week'))
+        .groupBy("country", "city", weekofyear('weatherDate').alias('week'))
         .agg(round(avg('Temperature_in_Celsius'), 2).alias('average_temperature'))
     )
 
@@ -124,8 +125,36 @@ try:
     average_humidity_for_time_period = (
         spark_weather_df
         .filter((col('weatherDate') >= start_date) & (col('weatherDate') <= end_date))
-        .agg(round(avg('Humidity'), 2).alias('average_humidity'))
+        .groupBy("country", "city")
+        .agg(
+            round(avg('Humidity'), 2).alias('average_humidity')
+        )
     )
+    # Add start_date and end_date as constant values
+    average_humidity_for_time_period = (
+        average_humidity_for_time_period
+        .withColumn("start_date", lit(start_date))
+        .withColumn("end_date", lit(end_date))
+    )
+
+    # Show the result
+    average_humidity_for_time_period.show(truncate=False)
+
+
+
+    # Read data from MySQL into a PySpark DataFrame
+    weather_dest_data = spark.read.jdbc(url=weather_db_properties_url, table=weather_data_query, properties=weather_db_properties)
+
+    # Specify the key columns for the join as a list
+    join_keys = ['country', 'city', 'weatherDate']
+
+    # Perform left anti join
+    result_df = spark_weather_df.join(weather_dest_data, on=join_keys, how='left_anti')
+
+    # Write the DataFrame to the MySQL table
+    result_df.write.jdbc(url=weather_db_properties_url, table="weather_db.weather_report_data", mode='append', properties=weather_db_properties)
+
+
 except Exception as e:
     print(f"Error: {e}")
 

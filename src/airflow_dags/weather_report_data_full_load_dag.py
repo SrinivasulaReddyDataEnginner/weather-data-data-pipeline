@@ -26,7 +26,7 @@ IMAGE_URI = "projects/wmt-pcloud-trusted-images/global/images/family/wmt-datapro
 MACHINE_TYPE = "n2-standard-16"
 
 
-PYTHON_SCRIPT_PATH = 'gs://weather-report/binaries/python/weather_report_data_pipeline.py'
+PYTHON_SCRIPT_PATH = 'gs://weather-report/binaries/python/weather_report_data_full_load_pipeline.py'
 
 
 # Dataproc cluster definition
@@ -98,7 +98,7 @@ def execute_python_script(**kwargs):
 
 
 
-with models.DAG("weather-report-data-pipeline-dag", start_date=datetime(2023, 11, 18), schedule_interval= '@hourly', catchup = False) as dag:
+with models.DAG("weather-report-data-full-load-pipeline-dag", start_date=datetime(2023, 11, 18), schedule_interval= None, catchup = False) as dag:
 
     create_cluster = DataprocCreateClusterOperator(
         task_id="create_cluster",

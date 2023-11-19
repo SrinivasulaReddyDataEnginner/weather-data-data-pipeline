@@ -40,6 +40,10 @@ def fetch_weather_data(api_key, city):
     city_name = data.get('city', {}).get('name', '')
     country_name = data.get('city', {}).get('country', '')
 
+    # Extracting latitude and longitude
+    latitude = data.get('city', {}).get('coord', {}).get('lat', '')
+    longitude = data.get('city', {}).get('coord', {}).get('lon', '')
+
     # Create a Pandas DataFrame
     weather_df = pd.DataFrame({
         'country': country_name,
@@ -48,7 +52,9 @@ def fetch_weather_data(api_key, city):
         'Temperature': temperatures,
         'Humidity': humidities,
         'WindSpeed': wind_speeds,
-        'WeatherDescription': weather_descriptions
+        'WeatherDescription': weather_descriptions,
+        'latitude': latitude,
+        'longitude': longitude
     })
 
     return weather_df
@@ -65,6 +71,8 @@ def process_spark_data(spark, weather_df):
     # Round the 'Temperature' and 'WindSpeed' columns to 2 decimal places
     spark_weather_df = spark_weather_df.withColumn('Temperature_in_Celsius', round('Temperature', 2)).withColumn(
         'WindSpeed_km_per_hour', round('WindSpeed', 2)).drop('Temperature', 'WindSpeed').select('country', 'city',
+                                                                                                'latitude',
+                                                                                                'longitude',
                                                                                                 'weatherDate',
                                                                                                 'Temperature_in_Celsius',
                                                                                                 'WindSpeed_km_per_hour',
@@ -132,7 +140,7 @@ def main():
 
         # Calculate and display average temperatures for each week
         avg_temp_df = calculate_avg_temperature(spark_weather_df)
-        avg_temp_df.show()
+        #avg_temp_df.show()
 
         # Write the average temperature DataFrame to the MySQL table
         avg_temp_df.write.jdbc(url=weather_db_properties_url, table="weather_db.weekly_avg_temp_report_data",
@@ -141,7 +149,7 @@ def main():
 
         # Calculate and display average humidity for a given time period
         avg_humidity_df = calculate_avg_humidity(spark_weather_df, start_date, end_date)
-        avg_humidity_df.show(truncate=False)
+        #avg_humidity_df.show(truncate=False)
 
         # Write the average humidity DataFrame to the MySQL table
         avg_humidity_df.write.jdbc(url=weather_db_properties_url,

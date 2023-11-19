@@ -24,6 +24,8 @@ try:
     CREATE TABLE IF NOT EXISTS weather_db.weather_report_data (
         country VARCHAR(255),
         city VARCHAR(255),
+        latitude DOUBLE,
+        longitude DOUBLE,
         weatherDate DATE,
         Temperature DOUBLE,
         Humidity INT,
